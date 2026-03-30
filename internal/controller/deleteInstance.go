@@ -9,8 +9,8 @@ import (
 )
 
 // deleteEc2Instance terminates the EC2 instance with the given ID.
-func deleteEc2Instance(ctx context.Context, region, instanceID string) error {
-	client, err := newEC2Client(ctx, region)
+func deleteEc2Instance(ctx context.Context, region, instanceID, endpoint string) error {
+	client, err := newEC2Client(ctx, region, endpoint)
 	if err != nil {
 		return fmt.Errorf("failed to create EC2 client: %w", err)
 	}

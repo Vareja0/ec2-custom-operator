@@ -14,12 +14,12 @@ import (
 	computev1 "github.com/vareja0/operator-repo/api/v1"
 )
 
-func createEc2Instance(ctx context.Context, ec2Instance *computev1.EC2instance) (*computev1.CreatedInstanceInfo, error) {
+func createEc2Instance(ctx context.Context, ec2Instance *computev1.EC2instance, endpoint string) (*computev1.CreatedInstanceInfo, error) {
 	l := logf.FromContext(ctx)
 	l.Info("Starting EC2 instance creation", "instanceName", ec2Instance.Spec.InstanceName, "region", ec2Instance.Spec.Region)
 
 	// initialize the EC2 client using credentials from env
-	client, err := newEC2Client(ctx, ec2Instance.Spec.Region)
+	client, err := newEC2Client(ctx, ec2Instance.Spec.Region, endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create EC2 client: %w", err)
 	}

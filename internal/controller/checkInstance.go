@@ -10,8 +10,8 @@ import (
 )
 
 // describeLiveInstance returns the current state and relevant spec fields of a running EC2 instance.
-func describeLiveInstance(ctx context.Context, region, instanceID string) (*computev1.LiveInstanceSpec, error) {
-	client, err := newEC2Client(ctx, region)
+func describeLiveInstance(ctx context.Context, region, instanceID, endpoint string) (*computev1.LiveInstanceSpec, error) {
+	client, err := newEC2Client(ctx, region, endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create EC2 client: %w", err)
 	}

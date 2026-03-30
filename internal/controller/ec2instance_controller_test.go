@@ -34,51 +34,101 @@ var _ = Describe("EC2instance Controller", func() {
 	Context("When reconciling a resource", func() {
 		const resourceName = "test-resource"
 
-		ctx := context.Background()
+		testCtx := context.Background()
 
-		typeNamespacedName := types.NamespacedName{
+		namespacedName := types.NamespacedName{
 			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+			Namespace: "default",
 		}
-		ec2instance := &computev1.EC2instance{}
 
 		BeforeEach(func() {
-			By("creating the custom resource for the Kind EC2instance")
-			err := k8sClient.Get(ctx, typeNamespacedName, ec2instance)
+			By("creating the EC2instance custom resource")
+			existing := &computev1.EC2instance{}
+			err := k8sClient.Get(testCtx, namespacedName, existing)
 			if err != nil && errors.IsNotFound(err) {
 				resource := &computev1.EC2instance{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
 						Namespace: "default",
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: computev1.EC2instanceSpec{
+						InstanceName:      resourceName,
+						Type:              "t3.micro",
+						Region:            "us-east-1",
+						AvaibilityZone:    "us-east-1a",
+						AmiID:             "ami-12345678",
+						Subnet:            "subnet-12345678",
+						SshKey:            "test-key",
+						AssociatePublicIP: false,
+						Storage: computev1.StorageConfig{
+							RootVoume: computev1.VolumeConfig{
+								DeviceName: "/dev/xvda",
+								Size:       8,
+								Type:       "gp3",
+								Encrypted:  true,
+							},
+						},
+					},
 				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+				Expect(k8sClient.Create(testCtx, resource)).To(Succeed())
 			}
 		})
 
 		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
+			By("cleaning up the EC2instance resource")
 			resource := &computev1.EC2instance{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
+			err := k8sClient.Get(testCtx, namespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())
-
-			By("Cleanup the specific resource instance EC2instance")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+			Expect(k8sClient.Delete(testCtx, resource)).To(Succeed())
 		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := &EC2instanceReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+
+		It("should create an EC2 instance and populate status", func() {
+			By("reconciling the created resource")
+			reconciler := &EC2instanceReconciler{
+				Client:      k8sClient,
+				Scheme:      k8sClient.Scheme(),
+				AWSEndpoint: awsEndpoint,
 			}
 
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
+			// First reconcile adds the finalizer
+			_, err := reconciler.Reconcile(testCtx, reconcile.Request{NamespacedName: namespacedName})
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+
+			// Second reconcile creates the EC2 instance
+			_, err = reconciler.Reconcile(testCtx, reconcile.Request{NamespacedName: namespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the status was populated with instance details")
+			updated := &computev1.EC2instance{}
+			Expect(k8sClient.Get(testCtx, namespacedName, updated)).To(Succeed())
+			Expect(updated.Status.InstanceID).NotTo(BeEmpty(), "instanceID should be set after reconcile")
+			Expect(updated.Status.Status).To(Equal("running"))
+		})
+
+		It("should be idempotent when reconciling a running instance", func() {
+			reconciler := &EC2instanceReconciler{
+				Client:      k8sClient,
+				Scheme:      k8sClient.Scheme(),
+				AWSEndpoint: awsEndpoint,
+			}
+
+			By("running the full creation flow")
+			_, err := reconciler.Reconcile(testCtx, reconcile.Request{NamespacedName: namespacedName})
+			Expect(err).NotTo(HaveOccurred())
+			_, err = reconciler.Reconcile(testCtx, reconcile.Request{NamespacedName: namespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			instance := &computev1.EC2instance{}
+			Expect(k8sClient.Get(testCtx, namespacedName, instance)).To(Succeed())
+			firstInstanceID := instance.Status.InstanceID
+			Expect(firstInstanceID).NotTo(BeEmpty())
+
+			By("reconciling again and expecting no replacement")
+			_, err = reconciler.Reconcile(testCtx, reconcile.Request{NamespacedName: namespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(testCtx, namespacedName, instance)).To(Succeed())
+			Expect(instance.Status.InstanceID).To(Equal(firstInstanceID), "instance should not be replaced when spec is unchanged")
 		})
 	})
 })

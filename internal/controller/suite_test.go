@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -25,6 +26,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/localstack"
 
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -37,20 +40,18 @@ import (
 	// +kubebuilder:scaffold:imports
 )
 
-// These tests use Ginkgo (BDD-style Go testing framework). Refer to
-// http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
-
 var (
-	ctx       context.Context
-	cancel    context.CancelFunc
-	testEnv   *envtest.Environment
-	cfg       *rest.Config
-	k8sClient client.Client
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	testEnv             *envtest.Environment
+	cfg                 *rest.Config
+	k8sClient           client.Client
+	localstackContainer *localstack.LocalStackContainer
+	awsEndpoint         string
 )
 
 func TestControllers(t *testing.T) {
 	RegisterFailHandler(Fail)
-
 	RunSpecs(t, "Controller Suite")
 }
 
@@ -59,9 +60,25 @@ var _ = BeforeSuite(func() {
 
 	ctx, cancel = context.WithCancel(context.TODO())
 
+	By("starting LocalStack container")
 	var err error
-	err = computev1.AddToScheme(scheme.Scheme)
+	localstackContainer, err = localstack.Run(ctx, "localstack/localstack:3.0",
+		testcontainers.WithEnv(map[string]string{"SERVICES": "ec2"}),
+	)
 	Expect(err).NotTo(HaveOccurred())
+
+	host, err := localstackContainer.Host(ctx)
+	Expect(err).NotTo(HaveOccurred())
+	port, err := localstackContainer.MappedPort(ctx, "4566/tcp")
+	Expect(err).NotTo(HaveOccurred())
+	awsEndpoint = fmt.Sprintf("http://%s:%s", host, port.Port())
+
+	os.Setenv("AWS_ACCESS_KEY_ID", "test")
+	os.Setenv("AWS_SECRET_ACCESS_KEY", "test")
+
+	var uerr error
+	uerr = computev1.AddToScheme(scheme.Scheme)
+	Expect(uerr).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme
 
@@ -71,12 +88,10 @@ var _ = BeforeSuite(func() {
 		ErrorIfCRDPathMissing: true,
 	}
 
-	// Retrieve the first found binary directory to allow running tests from IDEs
 	if getFirstFoundEnvTestBinaryDir() != "" {
 		testEnv.BinaryAssetsDirectory = getFirstFoundEnvTestBinaryDir()
 	}
 
-	// cfg is defined in this file globally.
 	cfg, err = testEnv.Start()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
@@ -92,16 +107,16 @@ var _ = AfterSuite(func() {
 	Eventually(func() error {
 		return testEnv.Stop()
 	}, time.Minute, time.Second).Should(Succeed())
+
+	if localstackContainer != nil {
+		Expect(testcontainers.TerminateContainer(localstackContainer)).To(Succeed())
+	}
+
+	os.Unsetenv("AWS_ACCESS_KEY_ID")
+	os.Unsetenv("AWS_SECRET_ACCESS_KEY")
 })
 
 // getFirstFoundEnvTestBinaryDir locates the first binary in the specified path.
-// ENVTEST-based tests depend on specific binaries, usually located in paths set by
-// controller-runtime. When running tests directly (e.g., via an IDE) without using
-// Makefile targets, the 'BinaryAssetsDirectory' must be explicitly configured.
-//
-// This function streamlines the process by finding the required binaries, similar to
-// setting the 'KUBEBUILDER_ASSETS' environment variable. To ensure the binaries are
-// properly set up, run 'make setup-envtest' beforehand.
 func getFirstFoundEnvTestBinaryDir() string {
 	basePath := filepath.Join("..", "..", "bin", "k8s")
 	entries, err := os.ReadDir(basePath)

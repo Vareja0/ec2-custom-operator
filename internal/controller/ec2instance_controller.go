@@ -32,7 +32,8 @@ import (
 // EC2instanceReconciler reconciles a EC2instance object
 type EC2instanceReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme      *runtime.Scheme
+	AWSEndpoint string // optional; if set, overrides the AWS endpoint (e.g. for LocalStack in tests)
 }
 
 // +kubebuilder:rbac:groups=compute.cloud.com,resources=ec2instances,verbs=get;list;watch;create;update;patch;delete
@@ -67,7 +68,7 @@ func (r *EC2instanceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		l.Info("Instance marked for deletion, terminating EC2 instance", "instanceID", ec2Instance.Status.InstanceID)
 
 		if ec2Instance.Status.InstanceID != "" {
-			if err := deleteEc2Instance(ctx, ec2Instance.Spec.Region, ec2Instance.Status.InstanceID); err != nil {
+			if err := deleteEc2Instance(ctx, ec2Instance.Spec.Region, ec2Instance.Status.InstanceID, r.AWSEndpoint); err != nil {
 				l.Error(err, "Failed to terminate EC2 instance", "instanceID", ec2Instance.Status.InstanceID)
 				return ctrl.Result{Requeue: true}, err
 			}
@@ -85,7 +86,7 @@ func (r *EC2instanceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	if ec2Instance.Status.InstanceID != "" {
-		live, err := describeLiveInstance(ctx, ec2Instance.Spec.Region, ec2Instance.Status.InstanceID)
+		live, err := describeLiveInstance(ctx, ec2Instance.Spec.Region, ec2Instance.Status.InstanceID, r.AWSEndpoint)
 		if err != nil {
 			l.Error(err, "Failed to describe live instance", "instanceID", ec2Instance.Status.InstanceID)
 			return ctrl.Result{Requeue: true}, err
@@ -94,7 +95,7 @@ func (r *EC2instanceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if specChanged(live, &ec2Instance.Spec) {
 			l.Info("Spec change detected, replacing instance", "instanceID", ec2Instance.Status.InstanceID)
 
-			if err := deleteEc2Instance(ctx, ec2Instance.Spec.Region, ec2Instance.Status.InstanceID); err != nil {
+			if err := deleteEc2Instance(ctx, ec2Instance.Spec.Region, ec2Instance.Status.InstanceID, r.AWSEndpoint); err != nil {
 				l.Error(err, "Failed to terminate outdated instance", "instanceID", ec2Instance.Status.InstanceID)
 				return ctrl.Result{Requeue: true}, err
 			}
@@ -139,7 +140,7 @@ func (r *EC2instanceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
-	instanceInfo, err := createEc2Instance(ctx, ec2Instance)
+	instanceInfo, err := createEc2Instance(ctx, ec2Instance, r.AWSEndpoint)
 	if err != nil {
 		l.Error(err, "Failed to create EC2 instance")
 		return ctrl.Result{Requeue: true}, err
