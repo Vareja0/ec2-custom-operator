@@ -112,6 +112,3 @@ helm uninstall ec2-operator -n ec2-operator
 > kubectl delete crd ec2instances.compute.cloud.com
 > ```
 
-## License
-
-Copyright 2026. Licensed under the [Apache License 2.0](http://www.apache.org/licenses/LICENSE-2.0).
