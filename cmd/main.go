@@ -187,6 +187,13 @@ func main() {
 	}
 	// +kubebuilder:scaffold:builder
 
+	ctx := ctrl.SetupSignalHandler()
+
+	if err := controller.VerifyAWSCredentials(ctx, os.Getenv("AWS_REGION")); err != nil {
+		setupLog.Error(err, "AWS credentials verification failed")
+		os.Exit(1)
+	}
+
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "Failed to set up health check")
 		os.Exit(1)
@@ -197,7 +204,7 @@ func main() {
 	}
 
 	setupLog.Info("Starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}

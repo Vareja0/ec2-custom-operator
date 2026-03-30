@@ -82,3 +82,4 @@ secret:
   enable: enable
   awsAccessKeyId: ""      # placeholder: your AWS access key ID
   awsSecretAccessKey: ""  # placeholder: your AWS secret access key
+  awsRegion: "us-east-1"  # placeholder: your AWS region

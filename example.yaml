@@ -9,8 +9,8 @@ spec:
   region: us-east-1
   avaibilityZone: us-east-1a
   amiID: ami-056244ee7f6e2feb8 # Red Hat Enterprise Linux 10
-  subnet: subnet-#########        # replace with your subnet ID
-  sshKey: #############            # replace with your EC2 key pair name
+  subnet: subnet-########    # replace with your subnet ID
+  sshKey: key#########          # replace with your EC2 key pair name
   associatePublicIp: true
   storage:
     rootVolume:

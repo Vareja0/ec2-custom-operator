@@ -54,6 +54,8 @@ spec:
                 secretKeyRef:
                   name: operator-aws-credentials
                   key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_REGION
+              value: {{ .Values.secret.awsRegion }}
             {{- end }}
           {{- end }}
           livenessProbe:
