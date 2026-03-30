@@ -35,7 +35,6 @@ secret:
   awsRegion: "us-east-1"
 ```
 
-> **Note:** Do not commit real credentials. Use `--set` flags or a separate secrets manager for production.
 
 ### 2. Install with Helm
 
