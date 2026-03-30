@@ -24,6 +24,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -48,6 +50,7 @@ var (
 	k8sClient           client.Client
 	localstackContainer *localstack.LocalStackContainer
 	awsEndpoint         string
+	testSubnetID        string
 )
 
 func TestControllers(t *testing.T) {
@@ -73,12 +76,28 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	awsEndpoint = fmt.Sprintf("http://%s:%s", host, port.Port())
 
-	os.Setenv("AWS_ACCESS_KEY_ID", "test")
-	os.Setenv("AWS_SECRET_ACCESS_KEY", "test")
+	Expect(os.Setenv("AWS_ACCESS_KEY_ID", "test")).To(Succeed())
+	Expect(os.Setenv("AWS_SECRET_ACCESS_KEY", "test")).To(Succeed())
 
-	var uerr error
-	uerr = computev1.AddToScheme(scheme.Scheme)
-	Expect(uerr).NotTo(HaveOccurred())
+	By("creating VPC and subnet in LocalStack")
+	ec2Client, err := newEC2Client(ctx, "us-east-1", awsEndpoint)
+	Expect(err).NotTo(HaveOccurred())
+
+	vpcOut, err := ec2Client.CreateVpc(ctx, &ec2.CreateVpcInput{
+		CidrBlock: aws.String("10.0.0.0/16"),
+	})
+	Expect(err).NotTo(HaveOccurred())
+
+	subnetOut, err := ec2Client.CreateSubnet(ctx, &ec2.CreateSubnetInput{
+		VpcId:            vpcOut.Vpc.VpcId,
+		CidrBlock:        aws.String("10.0.1.0/24"),
+		AvailabilityZone: aws.String("us-east-1a"),
+	})
+	Expect(err).NotTo(HaveOccurred())
+	testSubnetID = aws.ToString(subnetOut.Subnet.SubnetId)
+
+	err = computev1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme
 
@@ -112,8 +131,8 @@ var _ = AfterSuite(func() {
 		Expect(testcontainers.TerminateContainer(localstackContainer)).To(Succeed())
 	}
 
-	os.Unsetenv("AWS_ACCESS_KEY_ID")
-	os.Unsetenv("AWS_SECRET_ACCESS_KEY")
+	Expect(os.Unsetenv("AWS_ACCESS_KEY_ID")).To(Succeed())
+	Expect(os.Unsetenv("AWS_SECRET_ACCESS_KEY")).To(Succeed())
 })
 
 // getFirstFoundEnvTestBinaryDir locates the first binary in the specified path.

@@ -18,11 +18,13 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,12 +35,21 @@ import (
 var _ = Describe("EC2instance Controller", func() {
 	Context("When reconciling a resource", func() {
 		const resourceName = "test-resource"
+		const finalizer = "ec2instance.compute.cloud.com"
 
 		testCtx := context.Background()
 
 		namespacedName := types.NamespacedName{
 			Name:      resourceName,
 			Namespace: "default",
+		}
+
+		newReconciler := func() *EC2instanceReconciler {
+			return &EC2instanceReconciler{
+				Client:      k8sClient,
+				Scheme:      k8sClient.Scheme(),
+				AWSEndpoint: awsEndpoint,
+			}
 		}
 
 		BeforeEach(func() {
@@ -57,7 +68,7 @@ var _ = Describe("EC2instance Controller", func() {
 						Region:            "us-east-1",
 						AvaibilityZone:    "us-east-1a",
 						AmiID:             "ami-12345678",
-						Subnet:            "subnet-12345678",
+						Subnet:            testSubnetID,
 						SshKey:            "test-key",
 						AssociatePublicIP: false,
 						Storage: computev1.StorageConfig{
@@ -78,17 +89,25 @@ var _ = Describe("EC2instance Controller", func() {
 			By("cleaning up the EC2instance resource")
 			resource := &computev1.EC2instance{}
 			err := k8sClient.Get(testCtx, namespacedName, resource)
+			if errors.IsNotFound(err) {
+				return
+			}
 			Expect(err).NotTo(HaveOccurred())
+
+			// Remove the finalizer so the API server can garbage-collect the object
+			controllerutil.RemoveFinalizer(resource, finalizer)
+			Expect(k8sClient.Update(testCtx, resource)).To(Succeed())
 			Expect(k8sClient.Delete(testCtx, resource)).To(Succeed())
+
+			Eventually(func() bool {
+				err := k8sClient.Get(testCtx, namespacedName, &computev1.EC2instance{})
+				return errors.IsNotFound(err)
+			}, 30*time.Second, time.Second).Should(BeTrue(), "resource should be fully deleted before next test")
 		})
 
 		It("should create an EC2 instance and populate status", func() {
 			By("reconciling the created resource")
-			reconciler := &EC2instanceReconciler{
-				Client:      k8sClient,
-				Scheme:      k8sClient.Scheme(),
-				AWSEndpoint: awsEndpoint,
-			}
+			reconciler := newReconciler()
 
 			// First reconcile adds the finalizer
 			_, err := reconciler.Reconcile(testCtx, reconcile.Request{NamespacedName: namespacedName})
@@ -106,11 +125,7 @@ var _ = Describe("EC2instance Controller", func() {
 		})
 
 		It("should be idempotent when reconciling a running instance", func() {
-			reconciler := &EC2instanceReconciler{
-				Client:      k8sClient,
-				Scheme:      k8sClient.Scheme(),
-				AWSEndpoint: awsEndpoint,
-			}
+			reconciler := newReconciler()
 
 			By("running the full creation flow")
 			_, err := reconciler.Reconcile(testCtx, reconcile.Request{NamespacedName: namespacedName})

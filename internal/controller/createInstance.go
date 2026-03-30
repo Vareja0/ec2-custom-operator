@@ -98,7 +98,7 @@ func createEc2Instance(ctx context.Context, ec2Instance *computev1.EC2instance, 
 	result, err := client.RunInstances(ctx, input)
 	if err != nil {
 		l.Error(err, "Failed to create EC2 instance")
-		return nil, fmt.Errorf("Failed to create EC2 instances: %w", err)
+		return nil, fmt.Errorf("failed to create EC2 instances: %w", err)
 	}
 
 	if len(result.Instances) == 0 {
