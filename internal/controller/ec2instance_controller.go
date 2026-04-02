@@ -65,7 +65,7 @@ func (r *EC2instanceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	if !ec2Instance.DeletionTimestamp.IsZero() {
-		l.Info("Instance marked for deletion, terminating EC2 instance", "instanceID", ec2Instance.Status.InstanceID)
+		l.Info("=== Instance marked for deletion, terminating EC2 instance", "instanceID", ec2Instance.Status.InstanceID)
 
 		if ec2Instance.Status.InstanceID != "" {
 			if err := deleteEc2Instance(ctx, ec2Instance.Spec.Region, ec2Instance.Status.InstanceID, r.AWSEndpoint); err != nil {
