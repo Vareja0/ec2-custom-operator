@@ -1,0 +1,14 @@
+{{- if .Values.prometheus.enable }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+  name: {{ .Values.prometheus.serviceAccount.name }}
+rules:
+- apiGroups: [""]
+  resources: [nodes, nodes/metrics, services, endpoints, pods]
+  verbs: [get, list, watch]
+- nonResourceURLs: [/metrics]
+  verbs: [get]
+{{- end }}

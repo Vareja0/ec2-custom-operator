@@ -1,0 +1,16 @@
+{{- if .Values.prometheus.enable }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+  name: {{ .Values.prometheus.serviceAccount.name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.prometheus.serviceAccount.name }}
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.prometheus.serviceAccount.name }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}

@@ -102,9 +102,7 @@ func createEc2Instance(ctx context.Context, ec2Instance *computev1.EC2instance, 
 	}
 
 	if len(result.Instances) == 0 {
-		l.Error(nil, "No instances returned in RunInstancesOutput")
-		fmt.Println("No instances returned in RunInstancesOutput")
-		return nil, nil
+		return nil, fmt.Errorf("no instances returned in RunInstancesOutput")
 	}
 
 	instanceID := aws.ToString(result.Instances[0].InstanceId)

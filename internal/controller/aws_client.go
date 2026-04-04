@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -12,6 +13,10 @@ import (
 func newEC2Client(ctx context.Context, region, endpoint string) (*ec2.Client, error) {
 	accessKeyID := os.Getenv("AWS_ACCESS_KEY_ID")
 	secretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
+
+	if accessKeyID == "" || secretAccessKey == "" {
+		return nil, fmt.Errorf("AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY are not set")
+	}
 
 	opts := []func(*config.LoadOptions) error{
 		config.WithRegion(region),

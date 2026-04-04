@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -70,8 +71,11 @@ func (r *EC2instanceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if ec2Instance.Status.InstanceID != "" {
 			if err := deleteEc2Instance(ctx, ec2Instance.Spec.Region, ec2Instance.Status.InstanceID, r.AWSEndpoint); err != nil {
 				l.Error(err, "Failed to terminate EC2 instance", "instanceID", ec2Instance.Status.InstanceID)
+				ec2OperationErrors.WithLabelValues("delete").Inc()
 				return ctrl.Result{Requeue: true}, err
 			}
+			ec2InstancesDeleted.Inc()
+			ec2InstanceRunning.DeleteLabelValues(ec2Instance.Status.InstanceID, ec2Instance.Spec.InstanceName)
 			l.Info("EC2 instance terminated", "instanceID", ec2Instance.Status.InstanceID)
 		}
 
@@ -89,6 +93,7 @@ func (r *EC2instanceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		live, err := describeLiveInstance(ctx, ec2Instance.Spec.Region, ec2Instance.Status.InstanceID, r.AWSEndpoint)
 		if err != nil {
 			l.Error(err, "Failed to describe live instance", "instanceID", ec2Instance.Status.InstanceID)
+			ec2OperationErrors.WithLabelValues("describe").Inc()
 			return ctrl.Result{Requeue: true}, err
 		}
 
@@ -97,8 +102,11 @@ func (r *EC2instanceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 			if err := deleteEc2Instance(ctx, ec2Instance.Spec.Region, ec2Instance.Status.InstanceID, r.AWSEndpoint); err != nil {
 				l.Error(err, "Failed to terminate outdated instance", "instanceID", ec2Instance.Status.InstanceID)
+				ec2OperationErrors.WithLabelValues("delete").Inc()
 				return ctrl.Result{Requeue: true}, err
 			}
+			ec2InstancesReplaced.Inc()
+			ec2InstanceRunning.DeleteLabelValues(ec2Instance.Status.InstanceID, ec2Instance.Spec.InstanceName)
 			l.Info("Outdated instance terminated", "instanceID", ec2Instance.Status.InstanceID)
 
 			ec2Instance.Status.InstanceID = ""
@@ -118,11 +126,14 @@ func (r *EC2instanceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if live.State != "running" {
 			l.Info("Instance is not running, updating status", "instanceID", ec2Instance.Status.InstanceID, "state", live.State)
 			ec2Instance.Status.Status = live.State
+			ec2InstanceRunning.WithLabelValues(ec2Instance.Status.InstanceID, ec2Instance.Spec.InstanceName).Set(0)
 			if err := r.Status().Update(ctx, ec2Instance); err != nil {
 				l.Error(err, "Failed to update EC2instance status")
 				return ctrl.Result{Requeue: true}, err
 			}
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		} else {
+			ec2InstanceRunning.WithLabelValues(ec2Instance.Status.InstanceID, ec2Instance.Spec.InstanceName).Set(1)
 			l.Info("Instance is running and spec is up to date", "instanceID", ec2Instance.Status.InstanceID)
 		}
 
@@ -138,11 +149,13 @@ func (r *EC2instanceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			l.Error(err, "Failed to add finalizer")
 			return ctrl.Result{Requeue: true}, err
 		}
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	instanceInfo, err := createEc2Instance(ctx, ec2Instance, r.AWSEndpoint)
 	if err != nil {
 		l.Error(err, "Failed to create EC2 instance")
+		ec2OperationErrors.WithLabelValues("create").Inc()
 		return ctrl.Result{Requeue: true}, err
 	}
 
@@ -158,6 +171,8 @@ func (r *EC2instanceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{Requeue: true}, err
 	}
 
+	ec2InstancesCreated.Inc()
+	ec2InstanceRunning.WithLabelValues(instanceInfo.InstanceID, ec2Instance.Spec.InstanceName).Set(1)
 	l.Info("EC2 instance status updated", "instanceID", instanceInfo.InstanceID, "publicIP", instanceInfo.PublicIP)
 
 	return ctrl.Result{}, nil
