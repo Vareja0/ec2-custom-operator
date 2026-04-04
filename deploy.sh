@@ -17,6 +17,7 @@ echo "==> Installing Helm chart..."
 helm upgrade --install "$RELEASE_NAME" "$CHART_DIR" \
   --namespace "$NAMESPACE" \
   --create-namespace \
-  --values "$CHART_DIR/values.yaml"
+  --values "$CHART_DIR/values.yaml" \
+  --force-conflicts
 
 echo "==> Done. Release '$RELEASE_NAME' deployed to namespace '$NAMESPACE'."
