@@ -1,0 +1,23 @@
+---
+customMetrics:                                                                                                                                                               
+    - metric: ec2_instances_created_total
+      type: counter                                                                                                                                                              
+      unit: none
+                                                                                                                                                                                 
+    - metric: ec2_instances_deleted_total                                                                                                                                      
+      type: counter
+      unit: none
+
+    - metric: ec2_instances_replaced_total                                                                                                                                       
+      type: counter
+      unit: none                                                                                                                                                                 
+                                                                                                                                                                               
+    - metric: ec2_operation_errors_total
+      type: counter
+      unit: none
+
+    - metric: ec2_instance_running                                                                                                                                               
+      type: gauge
+      unit: none                                                                                                                                                                 
+      expr: ec2_instance_running{job="$job", namespace="$namespace"}
+

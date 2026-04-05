@@ -2,9 +2,80 @@
 
 A Kubernetes operator that lets you manage AWS EC2 instances as native Kubernetes resources. Define an `EC2instance` custom resource and the operator handles provisioning, tracking, and termination on AWS automatically.
 
-## How it works
+## Architecture
 
-The operator watches for `EC2instance` objects in your cluster. When one is created, it calls the AWS EC2 API to launch the instance and stores the instance ID and public IP in the resource status. When the object is deleted, the operator terminates the EC2 instance on AWS.
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Kubernetes Cluster                        │
+│                                                                  │
+│  ┌─────────────────┐        ┌──────────────────────────────┐    │
+│  │  User / kubectl │        │      namespace: monitoring    │    │
+│  └────────┬────────┘        │                              │    │
+│           │ apply/delete     │  ┌──────────┐  ┌─────────┐  │    │
+│           ▼                  │  │Prometheus│  │ Grafana │  │    │
+│  ┌─────────────────────┐     │  └────┬─────┘  └────┬────┘  │    │
+│  │ namespace: ec2-op.. │     │       │  scrape       │ query │    │
+│  │                     │     └───────┼───────────────┼───────┘    │
+│  │  ┌───────────────┐  │             │               │            │
+│  │  │  EC2instance  │  │◀────────────┘               │            │
+│  │  │      CR       │  │  ServiceMonitor              │            │
+│  │  └──────┬────────┘  │  :8443/metrics               │            │
+│  │         │ watch      │                              │            │
+│  │         ▼            │  ┌───────────────────────┐  │            │
+│  │  ┌────────────────┐  │  │  cert-manager (TLS)   │  │            │
+│  │  │   Controller   │◀─┼──│  metrics-server-cert  │  │            │
+│  │  │   Manager      │  │  └───────────────────────┘  │            │
+│  │  └──────┬─────────┘  │                              │            │
+│  └─────────┼────────────┘                              │            │
+└────────────┼──────────────────────────────────────────┼────────────┘
+             │ AWS SDK                                   │
+             ▼                                           │
+  ┌──────────────────────┐                    Dashboards │
+  │      AWS EC2 API     │◀───────────────────────────── ┘
+  │  RunInstances        │
+  │  DescribeInstances   │
+  │  TerminateInstances  │
+  └──────────────────────┘
+```
+
+## Workflow
+
+### Instance lifecycle
+
+```
+kubectl apply -f instance.yaml
+        │
+        ▼
+  Operator adds finalizer
+        │
+        ▼
+  createEc2Instance() ──► AWS RunInstances API
+        │
+        ▼
+  Wait for "running" state
+        │
+        ▼
+  Status updated: InstanceID, PublicIP, PrivateIP
+  Metric: ec2_instances_created_total++
+  Metric: ec2_instance_running{id, name} = 1
+        │
+        ▼
+  Spec change detected? ──► Terminate + Recreate
+        │                    Metric: ec2_instances_replaced_total++
+        ▼
+kubectl delete ec2instance <name>
+        │
+        ▼
+  DeletionTimestamp set → finalizer triggers
+        │
+        ▼
+  deleteEc2Instance() ──► AWS TerminateInstances API
+        │
+        ▼
+  Finalizer removed → object garbage collected
+  Metric: ec2_instances_deleted_total++
+  Metric: ec2_instance_running{id, name} deleted
+```
 
 ## Prerequisites
 
@@ -24,32 +95,68 @@ cd operator-repo
 
 ### 2. Fill in your AWS credentials
 
-
-Open `dist/chart/values.yaml` and fill in the `secret` section with your credentials:
+Open `dist/chart/values.yaml` and fill in the `secret` section:
 
 ```yaml
 secret:
   enable: true
-  awsAccessKeyId: "AKIA..."       # your AWS access key ID
-  awsSecretAccessKey: "..."        # your AWS secret access key
+  awsAccessKeyId: "AKIA..."
+  awsSecretAccessKey: "..."
   awsRegion: "us-east-1"
 ```
 
-
-### 2. Install with Helm
+### 3. Deploy everything
 
 ```bash
-helm install ec2-operator ./dist/chart \
-  --namespace ec2-operator \
-  --create-namespace \
-  -f dist/chart/values.yaml
+./deploy.sh create
 ```
 
-### 3. Verify the operator is running
+This installs in order:
+1. Prometheus Operator CRDs
+2. cert-manager (for metrics TLS)
+3. The operator Helm chart (namespace: `ec2-operator`)
+4. Grafana (namespace: `monitoring`)
+
+To tear everything down:
+
+```bash
+./deploy.sh delete
+```
+
+### 4. Verify the operator is running
 
 ```bash
 kubectl get pods -n ec2-operator
 ```
+
+## Observability
+
+Prometheus and Grafana are deployed in the `monitoring` namespace.
+
+```bash
+# Access Grafana
+kubectl port-forward svc/grafana 3000:80 -n monitoring
+
+# Access Prometheus
+kubectl port-forward svc/prometheus-operated 9090:9090 -n monitoring
+```
+
+Default Grafana credentials: `admin` / `admin`
+
+Import the dashboards from the `grafana/` directory:
+- `grafana/controller-runtime-metrics.json` — reconciliation & work queue metrics
+- `grafana/controller-resources-metrics.json` — CPU & memory usage
+- `grafana/custom-metrics/custom-metrics-dashboard.json` — EC2 instance metrics
+
+### Custom metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `ec2_instances_created_total` | Counter | Total EC2 instances successfully created |
+| `ec2_instances_deleted_total` | Counter | Total EC2 instances successfully deleted |
+| `ec2_instances_replaced_total` | Counter | Total EC2 instances replaced due to spec change |
+| `ec2_operation_errors_total` | Counter | Errors per operation (`create`, `delete`, `describe`) |
+| `ec2_instance_running` | Gauge | Instance running state — `1` = running, `0` = not running |
 
 ## Creating an EC2 instance
 
@@ -65,7 +172,7 @@ Check the status:
 kubectl get ec2instances
 ```
 
-The `Instance ID` and `Public IP` columns will populate once AWS provisions the instance.
+The `Instance ID` and `Public IP` columns populate once AWS provisions the instance.
 
 ## EC2instance spec reference
 
@@ -93,7 +200,7 @@ The `Instance ID` and `Public IP` columns will populate once AWS provisions the 
 kubectl delete ec2instance minimal-instance
 ```
 
-The operator will terminate the AWS instance before removing the Kubernetes object.
+The operator terminates the AWS instance before removing the Kubernetes object.
 
 ## Viewing logs
 
@@ -104,11 +211,22 @@ kubectl logs -n ec2-operator -l control-plane=controller-manager -c manager -f
 ## Uninstalling
 
 ```bash
-helm uninstall ec2-operator -n ec2-operator
+./deploy.sh delete
 ```
 
-> **Note:** CRDs are kept by default after uninstall (`crd.keep: true`). To remove them:
+> **Note:** CRDs are kept by default after uninstall (`crd.keep: true`). To remove them manually:
 > ```bash
 > kubectl delete crd ec2instances.compute.cloud.com
 > ```
 
+## Changelog
+
+### Recent changes
+
+- **Observability**: Prometheus + Grafana deployed in dedicated `monitoring` namespace with cross-namespace ServiceMonitor discovery
+- **Security**: cert-manager integration for TLS on the metrics endpoint (`certmanager.enable: true`)
+- **Deploy script**: `deploy.sh create|delete` automates full stack deployment and teardown
+- **Metrics scraping**: Prometheus scrape interval set to `15s`; Grafana datasource interval aligned to `15s`
+- **RBAC**: Fixed metrics reader binding to grant Prometheus service account in `monitoring` namespace access to operator metrics
+- **Helm**: Guarded Prometheus resources with CRD capabilities check; `--force-conflicts` added to upgrade command
+- **Docker**: Buildx integration for multi-platform image builds

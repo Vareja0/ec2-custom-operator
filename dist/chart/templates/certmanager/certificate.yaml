@@ -25,9 +25,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
 spec:
   dnsNames:
-    - operator.{{ .Release.Namespace }}.svc
-    - operator.{{ .Release.Namespace }}.svc.cluster.local
-    - operator-metrics-service.{{ .Release.Namespace }}.svc
+    - operator-controller-manager-metrics-service.{{ .Release.Namespace }}.svc
+    - operator-controller-manager-metrics-service.{{ .Release.Namespace }}.svc.cluster.local
   issuerRef:
     kind: Issuer
     name: selfsigned-issuer

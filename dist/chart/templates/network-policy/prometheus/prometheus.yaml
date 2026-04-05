@@ -5,12 +5,13 @@ metadata:
   labels:
     {{- include "chart.labels" . | nindent 4 }}
   name: prometheus
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ .Values.prometheus.serviceAccount.namespace }}
 spec:
   serviceAccountName: {{ .Values.prometheus.serviceAccount.name }}
   serviceMonitorSelector:
     matchLabels:
       app.kubernetes.io/name: {{ include "chart.name" . }}
+  serviceMonitorNamespaceSelector: {}
   resources:
     requests:
       memory: 400Mi
